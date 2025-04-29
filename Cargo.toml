@@ -1,0 +1,23 @@
+[package]
+name = "citybuilder"
+version = "0.1.0"
+edition = "2021"
+
+[build]
+rustc-wrapper = "C:/Users/mcgel/.cargo/bin/sccache.exe"
+
+[dependencies]
+bevy = { version = "0.16.0", features = ["dynamic_linking"] }
+bevy_dylib = "0.16.0"
+rand = "0.9.1"
+
+[package.metadata.bevy]
+renderer = "opengl"
+
+# Enable a small amount of optimization in the dev profile.
+[profile.dev]
+opt-level = 1
+
+# Enable a large amount of optimization in the dev profile for dependencies.
+[profile.dev.package."*"]
+opt-level = 3
