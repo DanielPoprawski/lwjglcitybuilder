@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
-const WINDOW_WIDTH: f32 = 800.0;
-const WINDOW_HEIGHT: f32 = 600.0;
+const WINDOW_WIDTH: f32 = 1920.0;
+const WINDOW_HEIGHT: f32 = 1080.0;
 
 fn main() {
     App::new()
@@ -9,17 +9,14 @@ fn main() {
             primary_window: Some(Window {
                 title: "Boids".into(),
                 resolution: (WINDOW_WIDTH, WINDOW_HEIGHT).into(),
-
                 ..default()
             }),
             ..Default::default()
         }))
-        .add_systems(Update, update)
+        .add_systems(Update, update_boids)
         .add_systems(Startup, startup)
         .run();
 }
-
-fn update() {}
 
 fn startup(
     mut commands: Commands,
@@ -30,6 +27,11 @@ fn startup(
         spawn_boid(&mut commands, &mut meshes, &mut materials);
     }
     commands.spawn(Camera2d);
+}
+
+#[derive(Component)]
+struct Boid {
+    direction: f64,
 }
 
 fn spawn_boid(
@@ -43,6 +45,9 @@ fn spawn_boid(
         z: 0.0,
     };
     commands.spawn((
+        Boid {
+            direction: rand::random::<f64>(),
+        },
         Mesh2d(meshes.add(Triangle2d::new(
             Vec2::new(0.0, 0.0),
             Vec2::new(-1.0, -2.0),
@@ -59,4 +64,11 @@ fn spawn_boid(
             ..default()
         },
     ));
+}
+
+fn update_boids(mut boid_query: Query<(&mut Boid, &mut Transform)>) {
+    for (mut boid, mut transform) in boid_query.iter_mut() {
+        transform.translation.x += boid.direction.sin() as f32 * 0.5;
+        transform.translation.y += boid.direction.cos() as f32 * 0.5;
+    }
 }
