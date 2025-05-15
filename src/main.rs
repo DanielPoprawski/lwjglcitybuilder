@@ -63,13 +63,12 @@ fn spawn_boid(
     triangle_mesh.insert_indices(index);
 
     let random_position: Vec3 = Vec3 {
-        //x: rand::random_range(-WINDOW_WIDTH / 2.0..WINDOW_WIDTH / 2.0),
-        //y: (rand::random_range(-WINDOW_HEIGHT / 2.0..WINDOW_HEIGHT / 2.0)),
-        x: 0.0,
-        y: 0.0,
+        x: rand::random_range(-WINDOW_WIDTH / 2.0..WINDOW_WIDTH / 2.0),
+        y: (rand::random_range(-WINDOW_HEIGHT / 2.0..WINDOW_HEIGHT / 2.0)),
         z: 0.0,
     };
-    let direction: f32 = rand::random_range(0.0..360.0);
+    let direction: f32 = rand::random_range(0.0..2.0 * std::f32::consts::PI);
+    // Direction is in Radians not Degrees
 
     commands.spawn((
         Boid {
@@ -84,15 +83,33 @@ fn spawn_boid(
                 z: 1.0,
             },
             translation: random_position,
-            rotation: Quat::from_rotation_z(-direction.to_radians() as f32),
+            rotation: Quat::from_rotation_z(-direction as f32),
             ..default()
         },
     ));
 }
 
-fn update_boids(mut boid_query: Query<(&mut Boid, &mut Transform)>) {
-    for (mut boid, mut transform) in boid_query.iter_mut() {
-        transform.translation.x += boid.direction.to_radians().sin() as f32 * SPEED;
-        transform.translation.y += boid.direction.to_radians().cos() as f32 * SPEED;
+fn update_boids(mut boid_query: Query<(Entity, &mut Boid, &mut Transform)>) {
+    let boid_data: Vec<(Entity, Boid, Transform)> =
+        boid_query.iter().map(|(e, &b, &t)| (e, b, t)).collect();
+
+    for (entity, boid, mut transform) in boid_query.iter_mut() {
+        // Basic physics
+        transform.translation.x += boid.direction.sin() as f32 * SPEED;
+        transform.translation.y += boid.direction.cos() as f32 * SPEED;
+
+        //Move the Boid if it wanders off the screen
+        if transform.translation.x.abs() > (WINDOW_WIDTH / 2.0) {
+            transform.translation.x = -transform.translation.x.signum() * (WINDOW_WIDTH / 2.0);
+        }
+        if transform.translation.y.abs() > (WINDOW_HEIGHT / 2.0) {
+            transform.translation.y = -transform.translation.y.signum() * (WINDOW_HEIGHT / 2.0);
+        }
+        for (other_entity, other_boid, other_transform) in &boid_data {
+            if &entity == other_entity {
+                continue;
+            }
+            if other_transform.translation.distance(transform.translation) < 1000.0 {}
+        }
     }
 }
