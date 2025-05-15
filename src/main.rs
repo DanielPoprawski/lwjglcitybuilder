@@ -1,7 +1,12 @@
-use bevy::prelude::*;
+use bevy::{
+    asset::RenderAssetUsages,
+    prelude::*,
+    render::mesh::{Indices, PrimitiveTopology},
+};
 
 const WINDOW_WIDTH: f32 = 1920.0;
 const WINDOW_HEIGHT: f32 = 1080.0;
+const SPEED: f32 = 0.5;
 
 fn main() {
     App::new()
@@ -31,7 +36,7 @@ fn startup(
 
 #[derive(Component)]
 struct Boid {
-    direction: f64,
+    direction: f32,
 }
 
 fn spawn_boid(
@@ -39,20 +44,38 @@ fn spawn_boid(
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<ColorMaterial>>,
 ) {
+    let mut triangle_mesh = Mesh::new(
+        PrimitiveTopology::TriangleStrip,
+        RenderAssetUsages::default(),
+    );
+
+    let vertices = vec![
+        Vec3::new(0.0, 2.0, 0.0),
+        Vec3::new(-0.8, -0.3, 0.0),
+        Vec3::new(0.0, 0.2, 0.0),
+        Vec3::new(0.8, -0.3, 0.0),
+    ];
+
+    let indices = vec![0, 1, 2, 0, 2, 3];
+    let index = Indices::U16(indices);
+
+    triangle_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
+    triangle_mesh.insert_indices(index);
+
     let random_position: Vec3 = Vec3 {
-        x: rand::random_range(-WINDOW_WIDTH / 2.0..WINDOW_WIDTH / 2.0),
-        y: (rand::random_range(-WINDOW_HEIGHT / 2.0..WINDOW_HEIGHT / 2.0)),
+        //x: rand::random_range(-WINDOW_WIDTH / 2.0..WINDOW_WIDTH / 2.0),
+        //y: (rand::random_range(-WINDOW_HEIGHT / 2.0..WINDOW_HEIGHT / 2.0)),
+        x: 0.0,
+        y: 0.0,
         z: 0.0,
     };
+    let direction: f32 = rand::random_range(0.0..360.0);
+
     commands.spawn((
         Boid {
-            direction: rand::random::<f64>(),
+            direction: direction,
         },
-        Mesh2d(meshes.add(Triangle2d::new(
-            Vec2::new(0.0, 0.0),
-            Vec2::new(-1.0, -2.0),
-            Vec2::new(1.0, -2.0),
-        ))),
+        Mesh2d(meshes.add(triangle_mesh)),
         MeshMaterial2d(materials.add(ColorMaterial::from_color(Color::WHITE))),
         Transform {
             scale: Vec3 {
@@ -61,6 +84,7 @@ fn spawn_boid(
                 z: 1.0,
             },
             translation: random_position,
+            rotation: Quat::from_rotation_z(-direction.to_radians() as f32),
             ..default()
         },
     ));
@@ -68,7 +92,7 @@ fn spawn_boid(
 
 fn update_boids(mut boid_query: Query<(&mut Boid, &mut Transform)>) {
     for (mut boid, mut transform) in boid_query.iter_mut() {
-        transform.translation.x += boid.direction.sin() as f32 * 0.5;
-        transform.translation.y += boid.direction.cos() as f32 * 0.5;
+        transform.translation.x += boid.direction.to_radians().sin() as f32 * SPEED;
+        transform.translation.y += boid.direction.to_radians().cos() as f32 * SPEED;
     }
 }
