@@ -89,11 +89,11 @@ fn spawn_boid(
     ));
 }
 
-fn update_boids(mut boid_query: Query<(Entity, &mut Boid, &mut Transform)>) {
-    let boid_data: Vec<(Entity, Boid, Transform)> =
-        boid_query.iter().map(|(e, &b, &t)| (e, b, t)).collect();
-
-    for (entity, boid, mut transform) in boid_query.iter_mut() {
+fn update_boids(
+    mut boids: Query<(Entity, &mut Boid, &mut Transform)>,
+    mut others: Query<(Entity, &mut Boid, &mut Transform)>,
+) {
+    for (entity, boid, mut transform) in boids.iter_mut() {
         // Basic physics
         transform.translation.x += boid.direction.sin() as f32 * SPEED;
         transform.translation.y += boid.direction.cos() as f32 * SPEED;
@@ -105,11 +105,12 @@ fn update_boids(mut boid_query: Query<(Entity, &mut Boid, &mut Transform)>) {
         if transform.translation.y.abs() > (WINDOW_HEIGHT / 2.0) {
             transform.translation.y = -transform.translation.y.signum() * (WINDOW_HEIGHT / 2.0);
         }
-        for (other_entity, other_boid, other_transform) in &boid_data {
-            if &entity == other_entity {
+
+        for (other_entity, other_boid, other_transform) in others.iter() {
+            if entity == other_entity {
                 continue;
             }
-            if other_transform.translation.distance(transform.translation) < 1000.0 {}
+            if (transform.translation.distance(other_transform.translation)) {}
         }
     }
 }
