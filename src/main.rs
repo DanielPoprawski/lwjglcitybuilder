@@ -18,7 +18,7 @@ fn main() {
             }),
             ..Default::default()
         }))
-        .add_systems(Update, update_boids)
+        .add_systems(Update, (update_boids, seperate_boids))
         .add_systems(Startup, startup)
         .run();
 }
@@ -28,7 +28,7 @@ fn startup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    for _ in 0..50 {
+    for _ in 0..5 {
         spawn_boid(&mut commands, &mut meshes, &mut materials);
     }
     commands.spawn(Camera2d);
@@ -78,8 +78,8 @@ fn spawn_boid(
         MeshMaterial2d(materials.add(ColorMaterial::from_color(Color::WHITE))),
         Transform {
             scale: Vec3 {
-                x: 5.0,
-                y: 5.0,
+                x: 15.0,
+                y: 15.0,
                 z: 1.0,
             },
             translation: random_position,
@@ -89,11 +89,37 @@ fn spawn_boid(
     ));
 }
 
-fn update_boids(
-    mut boids: Query<(Entity, &mut Boid, &mut Transform)>,
-    mut others: Query<(Entity, &mut Boid, &mut Transform)>,
-) {
-    for (entity, boid, mut transform) in boids.iter_mut() {
+fn seperate_boids(mut query: Query<(&mut Boid, &mut Transform)>) {
+    let mut adjacent_boids: Vec<(&mut Boid, &mut Transform)> = Vec::new();
+    let mut count: u8 = 0;
+    let mut separation_dir: Vec3 = Vec3 {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+    let iter = query.iter();
+
+    while let Some(a) = iter.next() {
+        for b in iter.remaining() {
+            if a.1.translation.distance(b.1.translation) < 300.0 {
+                separation_dir += a.1.translation - b.1.translation;
+                count += 1;
+            }
+        }
+        if count > 0 {
+            separation_dir /= Vec3 {
+                x: count as f32,
+                y: count as f32,
+                z: count as f32,
+            };
+            separation_dir = separation_dir.normalize();
+            a.0.direction = separation_dir.x.atan2(separation_dir.y);
+        }
+    }
+}
+
+fn update_boids(mut query: Query<(Entity, &Boid, &mut Transform)>) {
+    for (_entity, boid, mut transform) in query.iter_mut() {
         // Basic physics
         transform.translation.x += boid.direction.sin() as f32 * SPEED;
         transform.translation.y += boid.direction.cos() as f32 * SPEED;
@@ -104,13 +130,6 @@ fn update_boids(
         }
         if transform.translation.y.abs() > (WINDOW_HEIGHT / 2.0) {
             transform.translation.y = -transform.translation.y.signum() * (WINDOW_HEIGHT / 2.0);
-        }
-
-        for (other_entity, other_boid, other_transform) in others.iter() {
-            if entity == other_entity {
-                continue;
-            }
-            if (transform.translation.distance(other_transform.translation)) {}
         }
     }
 }
