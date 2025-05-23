@@ -1,12 +1,15 @@
 use bevy::{
     asset::RenderAssetUsages,
+    diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
+    platform::time,
     prelude::*,
     render::mesh::{Indices, PrimitiveTopology},
 };
 
 const WINDOW_WIDTH: f32 = 1920.0;
 const WINDOW_HEIGHT: f32 = 1080.0;
-const SPEED: f32 = 0.5;
+const SPEED: f32 = 200.;
+const BOID_COUNT: u8 = 10;
 
 fn main() {
     App::new()
@@ -14,12 +17,15 @@ fn main() {
             primary_window: Some(Window {
                 title: "Boids".into(),
                 resolution: (WINDOW_WIDTH, WINDOW_HEIGHT).into(),
+                present_mode: bevy::window::PresentMode::Immediate,
                 ..default()
             }),
             ..Default::default()
         }))
-        .add_systems(Update, (update_boids, seperate_boids))
+        .add_systems(Update, (update_boids, separate_boids))
         .add_systems(Startup, startup)
+        .add_plugins(FrameTimeDiagnosticsPlugin::default())
+        .add_plugins(LogDiagnosticsPlugin::default())
         .run();
 }
 
@@ -28,7 +34,7 @@ fn startup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    for _ in 0..5 {
+    for _ in 0..BOID_COUNT {
         spawn_boid(&mut commands, &mut meshes, &mut materials);
     }
     commands.spawn(Camera2d);
@@ -89,40 +95,43 @@ fn spawn_boid(
     ));
 }
 
-fn seperate_boids(mut query: Query<(&mut Boid, &mut Transform)>) {
-    let mut adjacent_boids: Vec<(&mut Boid, &mut Transform)> = Vec::new();
-    let mut count: u8 = 0;
-    let mut separation_dir: Vec3 = Vec3 {
-        x: 0.0,
-        y: 0.0,
-        z: 0.0,
-    };
-    let iter = query.iter();
+fn separate_boids(mut query: Query<(&mut Boid, &mut Transform)>) {
+    let positions: Vec<Vec3> = query
+        .iter()
+        .map(|(_, transform)| transform.translation)
+        .collect();
 
-    while let Some(a) = iter.next() {
-        for b in iter.remaining() {
-            if a.1.translation.distance(b.1.translation) < 300.0 {
-                separation_dir += a.1.translation - b.1.translation;
-                count += 1;
+    for (i, (mut boid, transform)) in query.iter_mut().enumerate() {
+        let mut count = 0.0;
+        let mut relative_pos = Vec3::ZERO;
+
+        // This loop checks against ALL other boids, not just one
+        for (j, &other_pos) in positions.iter().enumerate() {
+            if i == j {
+                continue;
+            }
+
+            let distance = transform.translation.distance(other_pos);
+            if distance < 100.0 && distance > 0.0 {
+                // Accumulating separation forces from ALL nearby boids
+                relative_pos += (transform.translation - other_pos).normalize() / distance;
+                count += 1.0;
             }
         }
-        if count > 0 {
-            separation_dir /= Vec3 {
-                x: count as f32,
-                y: count as f32,
-                z: count as f32,
-            };
-            separation_dir = separation_dir.normalize();
-            a.0.direction = separation_dir.x.atan2(separation_dir.y);
+
+        if count > 0.0 {
+            relative_pos /= count; // Average the forces
+            boid.direction -= relative_pos.y.atan2(relative_pos.x) * 0.01;
         }
     }
 }
 
-fn update_boids(mut query: Query<(Entity, &Boid, &mut Transform)>) {
+fn update_boids(mut query: Query<(Entity, &Boid, &mut Transform)>, time: Res<Time>) {
     for (_entity, boid, mut transform) in query.iter_mut() {
+        let delta_time: f32 = time.delta_secs();
         // Basic physics
-        transform.translation.x += boid.direction.sin() as f32 * SPEED;
-        transform.translation.y += boid.direction.cos() as f32 * SPEED;
+        transform.translation.x += boid.direction.sin() as f32 * SPEED * delta_time;
+        transform.translation.y += boid.direction.cos() as f32 * SPEED * delta_time;
 
         //Move the Boid if it wanders off the screen
         if transform.translation.x.abs() > (WINDOW_WIDTH / 2.0) {
@@ -131,5 +140,7 @@ fn update_boids(mut query: Query<(Entity, &Boid, &mut Transform)>) {
         if transform.translation.y.abs() > (WINDOW_HEIGHT / 2.0) {
             transform.translation.y = -transform.translation.y.signum() * (WINDOW_HEIGHT / 2.0);
         }
+
+        transform.rotation = Quat::from_rotation_z(-boid.direction as f32)
     }
 }
