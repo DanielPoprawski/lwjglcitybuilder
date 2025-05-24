@@ -1,15 +1,19 @@
 use bevy::{
     asset::RenderAssetUsages,
     diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
-    platform::time,
     prelude::*,
     render::mesh::{Indices, PrimitiveTopology},
+};
+use std::{
+    f32::consts::PI,
+    f64::{self, consts::E},
 };
 
 const WINDOW_WIDTH: f32 = 1920.0;
 const WINDOW_HEIGHT: f32 = 1080.0;
-const SPEED: f32 = 200.;
-const BOID_COUNT: u8 = 10;
+const SPEED: f32 = 300.;
+const BOID_COUNT: u8 = 5;
+const BOID_RADIUS: f32 = 500.0;
 
 fn main() {
     App::new()
@@ -43,6 +47,7 @@ fn startup(
 #[derive(Component)]
 struct Boid {
     direction: f32,
+    velocity: f32,
 }
 
 fn spawn_boid(
@@ -74,11 +79,13 @@ fn spawn_boid(
         z: 0.0,
     };
     let direction: f32 = rand::random_range(0.0..2.0 * std::f32::consts::PI);
+    let velocity: f32 = rand::random_range(0.0..SPEED);
     // Direction is in Radians not Degrees
 
     commands.spawn((
         Boid {
             direction: direction,
+            velocity: velocity,
         },
         Mesh2d(meshes.add(triangle_mesh)),
         MeshMaterial2d(materials.add(ColorMaterial::from_color(Color::WHITE))),
@@ -95,7 +102,11 @@ fn spawn_boid(
     ));
 }
 
-fn separate_boids(mut query: Query<(&mut Boid, &mut Transform)>) {
+fn distance_equation(x: f64) -> f64 {
+    return f64::consts::E.powf(-x / 100.0);
+}
+
+fn separate_boids(mut query: Query<(&mut Boid, &mut Transform)>, mut gizmos: Gizmos) {
     let positions: Vec<Vec3> = query
         .iter()
         .map(|(_, transform)| transform.translation)
@@ -103,36 +114,51 @@ fn separate_boids(mut query: Query<(&mut Boid, &mut Transform)>) {
 
     for (i, (mut boid, transform)) in query.iter_mut().enumerate() {
         let mut count = 0.0;
-        let mut relative_pos = Vec3::ZERO;
+        let mut relative_pos = transform.translation.clone();
 
-        // This loop checks against ALL other boids, not just one
         for (j, &other_pos) in positions.iter().enumerate() {
             if i == j {
                 continue;
             }
 
             let distance = transform.translation.distance(other_pos);
-            if distance < 100.0 && distance > 0.0 {
-                // Accumulating separation forces from ALL nearby boids
+            if distance < BOID_RADIUS && distance > 0.0 {
                 relative_pos += (transform.translation - other_pos).normalize() / distance;
+                gizmos.line_2d(
+                    transform.translation.xy(),
+                    other_pos.xy(),
+                    Srgba::rgba_u8(
+                        0,
+                        255,
+                        0,
+                        (255.0 * distance_equation(distance as f64)) as u8,
+                    ),
+                );
                 count += 1.0;
             }
-        }
-
-        if count > 0.0 {
-            relative_pos /= count; // Average the forces
-            boid.direction -= relative_pos.y.atan2(relative_pos.x) * 0.01;
         }
     }
 }
 
-fn update_boids(mut query: Query<(Entity, &Boid, &mut Transform)>, time: Res<Time>) {
-    for (_entity, boid, mut transform) in query.iter_mut() {
+fn update_boids(
+    mut query: Query<(Entity, &mut Boid, &mut Transform)>,
+    time: Res<Time>,
+    mut gizmos: Gizmos,
+) {
+    for (_entity, mut boid, mut transform) in query.iter_mut() {
         let delta_time: f32 = time.delta_secs();
         // Basic physics
-        transform.translation.x += boid.direction.sin() as f32 * SPEED * delta_time;
-        transform.translation.y += boid.direction.cos() as f32 * SPEED * delta_time;
+        transform.translation.x += boid.direction.sin() as f32 * boid.velocity * delta_time;
+        transform.translation.y += boid.direction.cos() as f32 * boid.velocity * delta_time;
 
+        let rand_percent: f32 = rand::random_range(0.0..100.0);
+        if rand_percent < 1.0 {
+            if rand::random_bool(0.5) {
+                boid.direction += 0.01;
+            } else {
+                boid.direction -= 0.01;
+            }
+        }
         //Move the Boid if it wanders off the screen
         if transform.translation.x.abs() > (WINDOW_WIDTH / 2.0) {
             transform.translation.x = -transform.translation.x.signum() * (WINDOW_WIDTH / 2.0);
@@ -140,6 +166,12 @@ fn update_boids(mut query: Query<(Entity, &Boid, &mut Transform)>, time: Res<Tim
         if transform.translation.y.abs() > (WINDOW_HEIGHT / 2.0) {
             transform.translation.y = -transform.translation.y.signum() * (WINDOW_HEIGHT / 2.0);
         }
+
+        gizmos.circle_2d(
+            Isometry2d::from_translation(transform.translation.xy()),
+            BOID_RADIUS,
+            LinearRgba::RED,
+        );
 
         transform.rotation = Quat::from_rotation_z(-boid.direction as f32)
     }
