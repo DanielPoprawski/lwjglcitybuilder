@@ -144,6 +144,7 @@ fn update_boids(
     mut query: Query<(Entity, &mut Boid, &mut Transform)>,
     time: Res<Time>,
     mut gizmos: Gizmos,
+    mut counter: Local<u16>,
 ) {
     for (_entity, mut boid, mut transform) in query.iter_mut() {
         let delta_time: f32 = time.delta_secs();
@@ -151,13 +152,11 @@ fn update_boids(
         transform.translation.x += boid.direction.sin() as f32 * boid.velocity * delta_time;
         transform.translation.y += boid.direction.cos() as f32 * boid.velocity * delta_time;
 
-        let rand_percent: f32 = rand::random_range(0.0..100.0);
-        if rand_percent < 1.0 {
-            if rand::random_bool(0.5) {
-                boid.direction += 0.01;
-            } else {
-                boid.direction -= 0.01;
-            }
+        if *counter < 500 {
+            *counter += 1;
+        } else {
+            *counter = 0;
+            boid.direction += rand::random_range(-0.25..0.25);
         }
         //Move the Boid if it wanders off the screen
         if transform.translation.x.abs() > (WINDOW_WIDTH / 2.0) {
