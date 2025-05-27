@@ -1,19 +1,20 @@
+use std::f32::consts::{FRAC_2_PI, PI};
+
+#[warn(unused_imports)]
 use bevy::{
     asset::RenderAssetUsages,
     diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
     prelude::*,
     render::mesh::{Indices, PrimitiveTopology},
 };
-use std::{
-    f32::consts::PI,
-    f64::{self, consts::E},
-};
+
+use noise::{NoiseFn, Perlin};
 
 const WINDOW_WIDTH: f32 = 1920.0;
 const WINDOW_HEIGHT: f32 = 1080.0;
 const SPEED: f32 = 300.;
-const BOID_COUNT: u8 = 5;
-const BOID_RADIUS: f32 = 500.0;
+const BOID_COUNT: u8 = 15;
+const BOID_RADIUS: f32 = 150.0;
 
 fn main() {
     App::new()
@@ -26,7 +27,7 @@ fn main() {
             }),
             ..Default::default()
         }))
-        .add_systems(Update, (update_boids, separate_boids))
+        .add_systems(Update, (update_boids, separation, cohesion, alignment))
         .add_systems(Startup, startup)
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_plugins(LogDiagnosticsPlugin::default())
@@ -48,6 +49,41 @@ fn startup(
 struct Boid {
     direction: f32,
     velocity: f32,
+    noise: Perlin,
+    noise_offset: f32,
+}
+
+impl Boid {
+    fn get_velocity(&self) -> Vec2 {
+        Vec2 {
+            x: self.direction.cos() * self.velocity,
+            y: self.direction.sin() * self.velocity,
+        }
+    }
+}
+
+fn is_in_range(pos: Vec3, direction: f32, other_pos: Vec3) -> bool {
+    if pos.distance(other_pos) > BOID_RADIUS {
+        return false;
+    }
+
+    let angle_to_other = (other_pos.y - pos.y).atan2(other_pos.x - pos.x);
+
+    // Convert your direction to atan2's coordinate system
+    let direction_in_atan2_coords = direction - PI / 2.0;
+
+    // Now calculate behind angle
+    let behind_angle = (direction_in_atan2_coords + PI) % (2.0 * PI);
+
+    let angle_diff = (angle_to_other - behind_angle).abs();
+    let angle_diff = if angle_diff > PI {
+        2.0 * PI - angle_diff
+    } else {
+        angle_diff
+    };
+
+    let exclusion_zone = PI / 3.0; // 60 degrees
+    angle_diff > exclusion_zone / 2.0
 }
 
 fn spawn_boid(
@@ -73,19 +109,14 @@ fn spawn_boid(
     triangle_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
     triangle_mesh.insert_indices(index);
 
-    let random_position: Vec3 = Vec3 {
-        x: rand::random_range(-WINDOW_WIDTH / 2.0..WINDOW_WIDTH / 2.0),
-        y: (rand::random_range(-WINDOW_HEIGHT / 2.0..WINDOW_HEIGHT / 2.0)),
-        z: 0.0,
-    };
-    let direction: f32 = rand::random_range(0.0..2.0 * std::f32::consts::PI);
-    let velocity: f32 = rand::random_range(0.0..SPEED);
-    // Direction is in Radians not Degrees
+    let direction = rand::random_range(0.0..2.0 * std::f32::consts::PI); // Direction is in Radians not Degrees
 
     commands.spawn((
         Boid {
             direction: direction,
-            velocity: velocity,
+            velocity: SPEED,
+            noise: Perlin::new(rand::random()),
+            noise_offset: rand::random::<f32>() * 1000.0,
         },
         Mesh2d(meshes.add(triangle_mesh)),
         MeshMaterial2d(materials.add(ColorMaterial::from_color(Color::WHITE))),
@@ -95,69 +126,31 @@ fn spawn_boid(
                 y: 15.0,
                 z: 1.0,
             },
-            translation: random_position,
-            rotation: Quat::from_rotation_z(-direction as f32),
+            translation: Vec3 {
+                x: rand::random_range(-WINDOW_WIDTH / 2.0..WINDOW_WIDTH / 2.0),
+                y: (rand::random_range(-WINDOW_HEIGHT / 2.0..WINDOW_HEIGHT / 2.0)),
+                z: 0.0,
+            },
+            rotation: Quat::from_rotation_z(direction),
             ..default()
         },
     ));
 }
 
-fn distance_equation(x: f64) -> f64 {
-    return f64::consts::E.powf(-x / 100.0);
-}
-
-fn separate_boids(mut query: Query<(&mut Boid, &mut Transform)>, mut gizmos: Gizmos) {
-    let positions: Vec<Vec3> = query
-        .iter()
-        .map(|(_, transform)| transform.translation)
-        .collect();
-
-    for (i, (mut boid, transform)) in query.iter_mut().enumerate() {
-        let mut count = 0.0;
-        let mut relative_pos = transform.translation.clone();
-
-        for (j, &other_pos) in positions.iter().enumerate() {
-            if i == j {
-                continue;
-            }
-
-            let distance = transform.translation.distance(other_pos);
-            if distance < BOID_RADIUS && distance > 0.0 {
-                relative_pos += (transform.translation - other_pos).normalize() / distance;
-                gizmos.line_2d(
-                    transform.translation.xy(),
-                    other_pos.xy(),
-                    Srgba::rgba_u8(
-                        0,
-                        255,
-                        0,
-                        (255.0 * distance_equation(distance as f64)) as u8,
-                    ),
-                );
-                count += 1.0;
-            }
-        }
-    }
-}
-
 fn update_boids(
     mut query: Query<(Entity, &mut Boid, &mut Transform)>,
     time: Res<Time>,
-    mut gizmos: Gizmos,
-    mut counter: Local<u16>,
+    // mut gizmos: Gizmos,
 ) {
     for (_entity, mut boid, mut transform) in query.iter_mut() {
+        if boid.direction > 2.0 * PI {
+            boid.direction -= 2.0 * PI; // Make sure direction is always between 0 and 2 PI
+        }
         let delta_time: f32 = time.delta_secs();
         // Basic physics
-        transform.translation.x += boid.direction.sin() as f32 * boid.velocity * delta_time;
-        transform.translation.y += boid.direction.cos() as f32 * boid.velocity * delta_time;
+        transform.translation.x += boid.direction.cos() as f32 * boid.velocity * delta_time;
+        transform.translation.y += boid.direction.sin() as f32 * boid.velocity * delta_time;
 
-        if *counter < 500 {
-            *counter += 1;
-        } else {
-            *counter = 0;
-            boid.direction += rand::random_range(-0.25..0.25);
-        }
         //Move the Boid if it wanders off the screen
         if transform.translation.x.abs() > (WINDOW_WIDTH / 2.0) {
             transform.translation.x = -transform.translation.x.signum() * (WINDOW_WIDTH / 2.0);
@@ -166,12 +159,101 @@ fn update_boids(
             transform.translation.y = -transform.translation.y.signum() * (WINDOW_HEIGHT / 2.0);
         }
 
-        gizmos.circle_2d(
-            Isometry2d::from_translation(transform.translation.xy()),
-            BOID_RADIUS,
-            LinearRgba::RED,
-        );
+        //Random wandering
+        boid.noise_offset += delta_time;
+        let noise_value = boid.noise.get([boid.noise_offset as f64; 2]) as f32;
+        boid.direction += noise_value * 0.001;
 
-        transform.rotation = Quat::from_rotation_z(-boid.direction as f32)
+        // gizmos.circle_2d(
+        //     Isometry2d::from_translation(transform.translation.xy()),
+        //     BOID_RADIUS,
+        //     LinearRgba::RED,
+        // );
+
+        transform.rotation = Quat::from_rotation_z(boid.direction - PI / 2.0);
+    }
+}
+
+fn separation(mut query: Query<(Entity, &mut Boid, &mut Transform)>, mut gizmos: Gizmos) {
+    for [(e_a, b_a, t_a), (e_b, b_b, t_b)] in query.iter_combinations() {
+        if e_a == e_b {
+            continue;
+        }
+
+        if !is_in_range(t_a.translation, b_a.direction, t_b.translation) {
+            continue;
+        }
+
+        let relative_position: Vec2 = (t_a.translation - t_b.translation).xy();
+        let relative_velocity: Vec2 = b_a.get_velocity() - b_b.get_velocity();
+
+        let dot_product = relative_velocity.dot(relative_position);
+        // if dot_product < 0. {
+        //     gizmos.line_2d(
+        //         t_a.translation.xy(),
+        //         t_a.translation.xy() + b_a.get_velocity().normalize() * 150.0,
+        //         Srgba::rgb_u8(255, 0, 0),
+        //     );
+        //     gizmos.line_2d(
+        //         t_b.translation.xy(),
+        //         t_b.translation.xy() + b_b.get_velocity().normalize() * 150.0,
+        //         Srgba::rgb_u8(0, 255, 0),
+        //     );
+        // }
+    }
+}
+
+fn alignment(
+    mut query: Query<(Entity, &mut Boid, &mut Transform)>,
+    mut commands: Commands,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let boid_data: Vec<(Entity, f32, Vec3)> = query
+        .iter()
+        .map(|(entity, boid, transform)| (entity, boid.direction, transform.translation))
+        .collect();
+
+    for (entity, mut boid, transform) in query.iter_mut() {
+        for &(other_entity, other_boid, other_transform) in &boid_data {
+            if entity == other_entity {
+                continue;
+            }
+
+            if !is_in_range(transform.translation, boid.direction, other_transform) {
+                commands.entity(entity).insert(MeshMaterial2d(
+                    materials.add(ColorMaterial::from_color(Color::WHITE)),
+                ));
+                continue;
+            }
+            commands.entity(entity).insert(MeshMaterial2d(
+                materials.add(ColorMaterial::from_color(Color::srgb_u8(255, 0, 0))),
+            ));
+
+            let direction_difference = (boid.direction - other_boid).abs();
+            if boid.direction > other_boid {
+                boid.direction -= direction_difference * 0.00125;
+            } else {
+                boid.direction += direction_difference * 0.00125;
+            }
+        }
+    }
+}
+fn cohesion(mut query: Query<(Entity, &mut Boid, &mut Transform)>, mut gizmos: Gizmos) {
+    let boid_data: Vec<(Entity, f32, Vec3)> = query
+        .iter()
+        .map(|(entity, boid, transform)| (entity, boid.direction, transform.translation))
+        .collect();
+
+    for (entity, mut boid, transform) in query.iter_mut() {
+        for &(other_entity, other_boid, other_transform) in &boid_data {
+            if entity == other_entity {
+                continue;
+            }
+
+            let distance = transform.translation.distance(other_transform);
+            if distance > BOID_RADIUS {
+                continue;
+            }
+        }
     }
 }
