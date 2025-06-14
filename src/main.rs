@@ -18,7 +18,7 @@ fn main() {
             primary_window: Some(Window {
                 title: "My City Builder".into(),
                 resolution: (WINDOW_WIDTH, WINDOW_HEIGHT).into(),
-                present_mode: bevy::window::PresentMode::AutoVsync,
+                present_mode: bevy::window::PresentMode::Immediate,
                 ..default()
             }),
             ..Default::default()
@@ -64,21 +64,15 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
             ..default()
         },
     ));
-    commands.spawn(SceneRoot(
+    commands.spawn((SceneRoot(
         asset_server.load(GltfAssetLabel::Scene(0).from_asset("map.glb")),
-    ));
+    ),));
     commands.insert_resource(AmbientLight {
         color: WHITE.into(),
         brightness: 10.,
         ..default()
     });
     commands.spawn((
-        // PointLight {
-        //     intensity: 100_000_000.0,
-        //     color: WHITE.into(),
-        //     shadows_enabled: true,
-        //     ..default()
-        // },
         DirectionalLight {
             illuminance: light_consts::lux::OVERCAST_DAY,
             shadows_enabled: true,
