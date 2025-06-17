@@ -10,6 +10,7 @@ rustc-wrapper = "C:/Users/mcgel/.cargo/bin/sccache.exe"
 alsa = "0.9.1"
 bevy = { version = "0.16.0", features = ["dynamic_linking"] }
 bevy_dylib = "0.16.0"
+bevy-trait-query = "0.16.0"
 rand = "0.9.1"
 rstar = "0.12.2"
 noise = "0.8"

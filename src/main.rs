@@ -3,22 +3,23 @@ use std::f32::consts::PI;
 use bevy::{
     color::palettes::css::*,
     core_pipeline::bloom::Bloom,
-    diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
     input::mouse::MouseMotion,
     pbr::CascadeShadowConfigBuilder,
     prelude::*,
+    // ecs::query,
     window::CursorGrabMode,
 };
 
 const WINDOW_WIDTH: f32 = 1920.0;
 const WINDOW_HEIGHT: f32 = 1080.0;
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "My City Builder".into(),
                 resolution: (WINDOW_WIDTH, WINDOW_HEIGHT).into(),
-                present_mode: bevy::window::PresentMode::Immediate,
+                present_mode: bevy::window::PresentMode::AutoVsync,
                 ..default()
             }),
             ..Default::default()
@@ -27,8 +28,6 @@ fn main() {
         .add_systems(Update, update)
         .add_systems(Update, handle_input)
         // .add_systems(Update, handle_light)
-        .add_plugins(FrameTimeDiagnosticsPlugin::default())
-        .add_plugins(LogDiagnosticsPlugin::default())
         .run();
 }
 
@@ -44,9 +43,7 @@ struct CameraController {
 
 fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
-        Camera3d {
-            ..Default::default()
-        },
+        Camera3d { ..default() },
         CameraController {
             pitch: 0.0,
             yaw: 0.0,
@@ -55,15 +52,16 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
             smoothing: 0.15,
             speed: 5.0,
         },
-        Bloom {
-            intensity: 0.3,
-            low_frequency_boost: 0.7,
-            low_frequency_boost_curvature: 0.95,
-            high_pass_frequency: 1.0,
-            composite_mode: bevy::core_pipeline::bloom::BloomCompositeMode::Additive,
-            ..default()
-        },
+        Transform::from_xyz(0.0, 10.0, 0.0),
     ));
+    commands.spawn(Bloom {
+        intensity: 0.3,
+        low_frequency_boost: 0.7,
+        low_frequency_boost_curvature: 0.95,
+        high_pass_frequency: 1.0,
+        composite_mode: bevy::core_pipeline::bloom::BloomCompositeMode::Additive,
+        ..default()
+    });
     commands.spawn((SceneRoot(
         asset_server.load(GltfAssetLabel::Scene(0).from_asset("map.glb")),
     ),));
@@ -89,8 +87,32 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
         }
         .build(),
     ));
+    commands.spawn((
+        Text::new("Testing \nTesting 2"),
+        TextColor(Color::WHITE),
+        TextFont {
+            font: Default::default(),
+            font_size: 24.0,
+            ..default()
+        },
+        TextLayout::new_with_justify(JustifyText::Left),
+    ));
 }
-fn update() {}
+fn update(
+    mut text_query: Query<&mut Text>,
+    camera_query: Query<(&Transform, &CameraController), With<Camera3d>>,
+) {
+    for (transform, camera_controller) in camera_query {
+        let trans = transform.translation;
+        for mut text in text_query.iter_mut() {
+            text.clear();
+            text.push_str(&format!(
+                "x: {}\ny: {}\nz: {}\npitch: {}\nyaw: {}",
+                trans.x, trans.y, trans.z, camera_controller.pitch, camera_controller.yaw
+            ));
+        }
+    }
+}
 
 // fn handle_light(
 //     keyboard_input: Res<ButtonInput<KeyCode>>,
@@ -123,29 +145,28 @@ fn handle_input(
     mut windows: Query<&mut Window>,
 ) {
     for (mut transform, mut camera_controller) in query.iter_mut() {
+        let height: f32 = transform.translation.y;
         if keyboard_input.pressed(KeyCode::KeyW) {
             let forward: Vec3 = *transform.forward();
-            transform.translation += forward * time.delta_secs() * camera_controller.speed;
+            transform.translation += forward * time.delta_secs() * camera_controller.speed * height;
         }
         if keyboard_input.pressed(KeyCode::KeyA) {
             let left: Vec3 = *transform.left();
-            transform.translation += left * time.delta_secs() * camera_controller.speed;
+            transform.translation += left * time.delta_secs() * camera_controller.speed * height;
         }
         if keyboard_input.pressed(KeyCode::KeyS) {
             let back: Vec3 = *transform.back();
-            transform.translation += back * time.delta_secs() * camera_controller.speed;
+            transform.translation += back * time.delta_secs() * camera_controller.speed * height;
         }
         if keyboard_input.pressed(KeyCode::KeyD) {
             let right: Vec3 = *transform.right();
-            transform.translation += right * time.delta_secs() * camera_controller.speed;
+            transform.translation += right * time.delta_secs() * camera_controller.speed * height;
         }
         if keyboard_input.pressed(KeyCode::Space) {
-            let up: Vec3 = *transform.up();
-            transform.translation += up * time.delta_secs() * camera_controller.speed;
+            transform.translation.y += time.delta_secs() * camera_controller.speed * 5.0;
         }
         if keyboard_input.pressed(KeyCode::ShiftLeft) {
-            let down: Vec3 = *transform.down();
-            transform.translation += down * time.delta_secs() * camera_controller.speed;
+            transform.translation.y -= time.delta_secs() * camera_controller.speed * 5.0;
         }
         if keyboard_input.pressed(KeyCode::ArrowUp) {
             // light.brightness += 0.01;
@@ -166,6 +187,15 @@ fn handle_input(
                 + cumulative_movement * (1.0 - camera_controller.smoothing);
             camera_controller.yaw -= camera_controller.velocity.x * camera_controller.sensitivity;
             camera_controller.pitch -= camera_controller.velocity.y * camera_controller.sensitivity;
+
+            camera_controller.pitch = camera_controller.pitch.clamp(-PI / 2.0, PI / 2.0);
+
+            if camera_controller.yaw > 2.0 * PI {
+                camera_controller.yaw -= 2.0 * PI;
+            }
+            if camera_controller.yaw < 0.0 {
+                camera_controller.yaw += 2.0 * PI;
+            }
         } else {
             mouse_movement.clear();
             camera_controller.velocity *= 0.2;
