@@ -1,135 +1,211 @@
+use std::f32::consts::PI;
+
 use bevy::{
-    asset::RenderAssetUsages,
+    color::palettes::css::*,
+    core_pipeline::bloom::Bloom,
+    input::mouse::MouseMotion,
+    pbr::CascadeShadowConfigBuilder,
     prelude::*,
-    render::mesh::{Indices, PrimitiveTopology},
+    // ecs::query,
+    window::CursorGrabMode,
 };
 
 const WINDOW_WIDTH: f32 = 1920.0;
 const WINDOW_HEIGHT: f32 = 1080.0;
-const SPEED: f32 = 0.5;
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "Boids".into(),
+                title: "My City Builder".into(),
                 resolution: (WINDOW_WIDTH, WINDOW_HEIGHT).into(),
+                present_mode: bevy::window::PresentMode::AutoVsync,
                 ..default()
             }),
             ..Default::default()
         }))
-        .add_systems(Update, (update_boids, seperate_boids))
         .add_systems(Startup, startup)
+        .add_systems(Update, update)
+        .add_systems(Update, handle_input)
+        // .add_systems(Update, handle_light)
         .run();
 }
 
-fn startup(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
-    for _ in 0..5 {
-        spawn_boid(&mut commands, &mut meshes, &mut materials);
-    }
-    commands.spawn(Camera2d);
+#[derive(Component, Default)]
+struct CameraController {
+    pitch: f32,
+    yaw: f32,
+    sensitivity: f32,
+    velocity: Vec2,
+    smoothing: f32,
+    speed: f32,
 }
 
-#[derive(Component)]
-struct Boid {
-    direction: f32,
-}
-
-fn spawn_boid(
-    commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<ColorMaterial>>,
-) {
-    let mut triangle_mesh = Mesh::new(
-        PrimitiveTopology::TriangleStrip,
-        RenderAssetUsages::default(),
-    );
-
-    let vertices = vec![
-        Vec3::new(0.0, 2.0, 0.0),
-        Vec3::new(-0.8, -0.3, 0.0),
-        Vec3::new(0.0, 0.2, 0.0),
-        Vec3::new(0.8, -0.3, 0.0),
-    ];
-
-    let indices = vec![0, 1, 2, 0, 2, 3];
-    let index = Indices::U16(indices);
-
-    triangle_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
-    triangle_mesh.insert_indices(index);
-
-    let random_position: Vec3 = Vec3 {
-        x: rand::random_range(-WINDOW_WIDTH / 2.0..WINDOW_WIDTH / 2.0),
-        y: (rand::random_range(-WINDOW_HEIGHT / 2.0..WINDOW_HEIGHT / 2.0)),
-        z: 0.0,
-    };
-    let direction: f32 = rand::random_range(0.0..2.0 * std::f32::consts::PI);
-    // Direction is in Radians not Degrees
-
+fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
-        Boid {
-            direction: direction,
+        Camera3d { ..default() },
+        CameraController {
+            pitch: 0.0,
+            yaw: 0.0,
+            sensitivity: 0.002,
+            velocity: Vec2::ZERO,
+            smoothing: 0.15,
+            speed: 5.0,
         },
-        Mesh2d(meshes.add(triangle_mesh)),
-        MeshMaterial2d(materials.add(ColorMaterial::from_color(Color::WHITE))),
-        Transform {
-            scale: Vec3 {
-                x: 15.0,
-                y: 15.0,
-                z: 1.0,
-            },
-            translation: random_position,
-            rotation: Quat::from_rotation_z(-direction as f32),
+        Transform::from_xyz(0.0, 10.0, 0.0),
+    ));
+    commands.spawn(Bloom {
+        intensity: 0.3,
+        low_frequency_boost: 0.7,
+        low_frequency_boost_curvature: 0.95,
+        high_pass_frequency: 1.0,
+        composite_mode: bevy::core_pipeline::bloom::BloomCompositeMode::Additive,
+        ..default()
+    });
+    commands.spawn((SceneRoot(
+        asset_server.load(GltfAssetLabel::Scene(0).from_asset("map.glb")),
+    ),));
+    commands.insert_resource(AmbientLight {
+        color: WHITE.into(),
+        brightness: 10.,
+        ..default()
+    });
+    commands.spawn((
+        DirectionalLight {
+            illuminance: light_consts::lux::OVERCAST_DAY,
+            shadows_enabled: true,
             ..default()
         },
+        Transform {
+            translation: Vec3::new(0.0, 200.0, 0.0),
+            rotation: Quat::from_rotation_x(-PI / 4.),
+            ..default()
+        },
+        CascadeShadowConfigBuilder {
+            first_cascade_far_bound: 500.0,
+            ..default()
+        }
+        .build(),
+    ));
+    commands.spawn((
+        Text::new("Testing \nTesting 2"),
+        TextColor(Color::WHITE),
+        TextFont {
+            font: Default::default(),
+            font_size: 24.0,
+            ..default()
+        },
+        TextLayout::new_with_justify(JustifyText::Left),
     ));
 }
-
-fn seperate_boids(mut query: Query<(&mut Boid, &mut Transform)>) {
-    let mut adjacent_boids: Vec<(&mut Boid, &mut Transform)> = Vec::new();
-    let mut count: u8 = 0;
-    let mut separation_dir: Vec3 = Vec3 {
-        x: 0.0,
-        y: 0.0,
-        z: 0.0,
-    };
-    let mut iter = query.iter();
-
-    while let mut Some(a) = iter.next() {
-        for b in iter.remaining() {
-            if a.1.translation.distance(b.1.translation) < 300.0 {
-                separation_dir += a.1.translation - b.1.translation;
-                count += 1;
-            }
-        }
-        if count > 0 {
-            separation_dir /= Vec3 {
-                x: count as f32,
-                y: count as f32,
-                z: count as f32,
-            };
-            separation_dir = separation_dir.normalize();
-            a.0.direction = separation_dir.x.atan2(separation_dir.y);
+fn update(
+    mut text_query: Query<&mut Text>,
+    camera_query: Query<(&Transform, &CameraController), With<Camera3d>>,
+) {
+    for (transform, camera_controller) in camera_query {
+        let trans = transform.translation;
+        for mut text in text_query.iter_mut() {
+            text.clear();
+            text.push_str(&format!(
+                "x: {}\ny: {}\nz: {}\npitch: {}\nyaw: {}",
+                trans.x, trans.y, trans.z, camera_controller.pitch, camera_controller.yaw
+            ));
         }
     }
 }
 
-fn update_boids(mut query: Query<(Entity, &Boid, &mut Transform)>) {
-    for (_entity, boid, mut transform) in query.iter_mut() {
-        // Basic physics
-        transform.translation.x += boid.direction.sin() as f32 * SPEED;
-        transform.translation.y += boid.direction.cos() as f32 * SPEED;
+/ fn handle_light(
+//     keyboard_input: Res<ButtonInput<KeyCode>>,
+//     query: Query<&mut CameraController>,
+//     mut counter: Local<f32>,
+// ) {
+//     for mut camera in query {
+//         if *counter == 0.0 {
+//             *counter = 0.85;
+//         }
+//         if keyboard_input.just_pressed(KeyCode::ArrowUp) {
+//             *counter += 0.05;
+//         }
+//         if keyboard_input.just_pressed(KeyCode::ArrowDown) {
+//             *counter -= 0.05;
+//         }
+//         *counter = counter.clamp(0.01, 0.9999);
+//         // camera.smoothing = *counter;
+//         // println!("{}", camera.smoothing);
+//     }
+// }
 
-        //Move the Boid if it wanders off the screen
-        if transform.translation.x.abs() > (WINDOW_WIDTH / 2.0) {
-            transform.translation.x = -transform.translation.x.signum() * (WINDOW_WIDTH / 2.0);
+fn handle_input(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mouse_input: Res<ButtonInput<MouseButton>>,
+    mut mouse_movement: EventReader<MouseMotion>,
+    mut query: Query<(&mut Transform, &mut CameraController), With<Camera3d>>,
+    // light: ResMut<AmbientLight>,
+    time: Res<Time>,
+    mut windows: Query<&mut Window>,
+) {
+    for (mut transform, mut camera_controller) in query.iter_mut() {
+        let height: f32 = transform.translation.y;
+        if keyboard_input.pressed(KeyCode::KeyW) {
+            let forward: Vec3 = *transform.forward();
+            transform.translation += forward * time.delta_secs() * camera_controller.speed * height;
         }
-        if transform.translation.y.abs() > (WINDOW_HEIGHT / 2.0) {
-            transform.translation.y = -transform.translation.y.signum() * (WINDOW_HEIGHT / 2.0);
+        if keyboard_input.pressed(KeyCode::KeyA) {
+            let left: Vec3 = *transform.left();
+            transform.translation += left * time.delta_secs() * camera_controller.speed * height;
         }
+        if keyboard_input.pressed(KeyCode::KeyS) {
+            let back: Vec3 = *transform.back();
+            transform.translation += back * time.delta_secs() * camera_controller.speed * height;
+        }
+        if keyboard_input.pressed(KeyCode::KeyD) {
+            let right: Vec3 = *transform.right();
+            transform.translation += right * time.delta_secs() * camera_controller.speed * height;
+        }
+        if keyboard_input.pressed(KeyCode::Space) {
+            transform.translation.y += time.delta_secs() * camera_controller.speed * 5.0;
+        }
+        if keyboard_input.pressed(KeyCode::ShiftLeft) {
+            transform.translation.y -= time.delta_secs() * camera_controller.speed * 5.0;
+        }
+        if keyboard_input.pressed(KeyCode::ArrowUp) {
+            // light.brightness += 0.01;
+        }
+        if keyboard_input.pressed(KeyCode::ArrowDown) {
+            // light.brightness -= 0.01;
+        }
+        if mouse_input.pressed(MouseButton::Right) {
+            if let Ok(mut window) = windows.single_mut() {
+                window.cursor_options.grab_mode = CursorGrabMode::Locked;
+                window.cursor_options.visible = false;
+            }
+            let mut cumulative_movement = Vec2::ZERO;
+            for event in mouse_movement.read() {
+                cumulative_movement += event.delta;
+            }
+            camera_controller.velocity = camera_controller.velocity * camera_controller.smoothing
+                + cumulative_movement * (1.0 - camera_controller.smoothing);
+            camera_controller.yaw -= camera_controller.velocity.x * camera_controller.sensitivity;
+            camera_controller.pitch -= camera_controller.velocity.y * camera_controller.sensitivity;
+
+            camera_controller.pitch = camera_controller.pitch.clamp(-PI / 2.0, PI / 2.0);
+
+            if camera_controller.yaw > 2.0 * PI {
+                camera_controller.yaw -= 2.0 * PI;
+            }
+            if camera_controller.yaw < 0.0 {
+                camera_controller.yaw += 2.0 * PI;
+            }
+        } else {
+            mouse_movement.clear();
+            camera_controller.velocity *= 0.2;
+            if let Ok(mut window) = windows.single_mut() {
+                window.cursor_options.grab_mode = CursorGrabMode::None;
+                window.cursor_options.visible = true;
+           }
+        }
+        let yaw_quat = Quat::from_rotation_y(camera_controller.yaw);
+        let pitch_quat = Quat::from_rotation_x(camera_controller.pitch);
+        transform.rotation = yaw_quat * pitch_quat;
     }
 }
