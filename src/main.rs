@@ -97,9 +97,9 @@ fn seperate_boids(mut query: Query<(&mut Boid, &mut Transform)>) {
         y: 0.0,
         z: 0.0,
     };
-    let iter = query.iter();
+    let mut iter = query.iter();
 
-    while let Some(a) = iter.next() {
+    while let mut Some(a) = iter.next() {
         for b in iter.remaining() {
             if a.1.translation.distance(b.1.translation) < 300.0 {
                 separation_dir += a.1.translation - b.1.translation;
